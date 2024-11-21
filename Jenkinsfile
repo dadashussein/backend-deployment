@@ -1,85 +1,60 @@
 pipeline {
     agent any
     
-    environment {
-        DOCKER_REGISTRY = 'registry.digitalocean.com/dadas'
-        SERVICE_NAME = 'email-service'
-        // Use Jenkins credentials binding for kubeconfig
-        KUBECONFIG = credentials('k3s-kubeconfig')
-    }
-    
     stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                dir('email-service-app') {
-                    script {
-                        // Build Docker image
-                        docker.build("${DOCKER_REGISTRY}/${SERVICE_NAME}:${env.BUILD_NUMBER}")
-                    }
-                }
-            }
-        }
-        
-        stage('Push to Registry') {
-            steps {
-                dir('email-service-app') {
-                    script {
-                        docker.withRegistry('https://registry.digitalocean.com', 'digitalocean-registry-credentials') {
-                            docker.image("${DOCKER_REGISTRY}/${SERVICE_NAME}:${env.BUILD_NUMBER}").push()
-                            docker.image("${DOCKER_REGISTRY}/${SERVICE_NAME}:${env.BUILD_NUMBER}").push('latest')
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('Deploy to K3s') {
-            steps {
-                dir('helm-chart') {
-                    script {
-                        // Use the credentials binding for kubeconfig
-                        withCredentials([file(credentialsId: 'k3s-kubeconfig', variable: 'KUBECONFIG')]) {
-                            sh """
-                                export KUBECONFIG=${KUBECONFIG}
-                                helm upgrade --install ${SERVICE_NAME} . \
-                                --set image.repository=${DOCKER_REGISTRY}/${SERVICE_NAME} \
-                                --set image.tag=${env.BUILD_NUMBER} \
-                                --namespace default
-                            """
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('Verify Deployment') {
+        stage('Debug Information') {
             steps {
                 script {
-                    withCredentials([file(credentialsId: 'k3s-kubeconfig', variable: 'KUBECONFIG')]) {
-                        sh """
-                            export KUBECONFIG=${KUBECONFIG}
-                            kubectl get pods -n default
-                            kubectl get services -n default
-                            kubectl rollout status deployment/${SERVICE_NAME} -n default
-                        """
-                    }
+                    // Print out detailed debug information
+                    sh '''
+                        pwd
+                        ls -la
+                        whoami
+                        env
+                        git --version
+                        docker --version
+                        helm version
+                        kubectl version --client
+                    '''
+                }
+            }
+        }
+        
+        stage('List Repository Contents') {
+            steps {
+                sh '''
+                    echo "Repository Contents:"
+                    find . -maxdepth 2 -type d
+                '''
+            }
+        }
+        
+        stage('Check Email Service App') {
+            steps {
+                dir('email-service-app') {
+                    sh '''
+                        echo "Contents of email-service-app:"
+                        ls -la
+                        if [ -f Dockerfile ]; then
+                            echo "Dockerfile exists"
+                        else
+                            echo "Dockerfile NOT FOUND"
+                        fi
+                    '''
                 }
             }
         }
     }
     
     post {
+        always {
+            echo 'Pipeline run completed'
+        }
         success {
-            echo 'Deployment successful! 🚀'
+            echo 'Pipeline succeeded! 🟢'
         }
         failure {
-            echo 'Deployment failed! 🚨'
+            echo 'Pipeline failed! 🔴'
         }
     }
 }
