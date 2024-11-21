@@ -4,22 +4,14 @@ pipeline {
     environment {
         DOCKER_REGISTRY = 'registry.digitalocean.com/dadas'
         SERVICE_NAME = 'email-service'
+        // Use Jenkins credentials binding for kubeconfig
         KUBECONFIG = credentials('k3s-kubeconfig')
     }
     
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', 
-                    url: 'https://github.com/dadashussein/backend-deployment.git'
-            }
-        }
-        
-        stage('Navigate to Project Directory') {
-            steps {
-                dir('email-service-app') {
-                    sh 'pwd'
-                }
+                checkout scm
             }
         }
         
@@ -27,6 +19,7 @@ pipeline {
             steps {
                 dir('email-service-app') {
                     script {
+                        // Build Docker image
                         docker.build("${DOCKER_REGISTRY}/${SERVICE_NAME}:${env.BUILD_NUMBER}")
                     }
                 }
@@ -50,12 +43,16 @@ pipeline {
             steps {
                 dir('helm-chart') {
                     script {
-                        sh """
-                            helm upgrade --install ${SERVICE_NAME} . \
-                            --set image.repository=${DOCKER_REGISTRY}/${SERVICE_NAME} \
-                            --set image.tag=${env.BUILD_NUMBER} \
-                            --namespace default
-                        """
+                        // Use the credentials binding for kubeconfig
+                        withCredentials([file(credentialsId: 'k3s-kubeconfig', variable: 'KUBECONFIG')]) {
+                            sh """
+                                export KUBECONFIG=${KUBECONFIG}
+                                helm upgrade --install ${SERVICE_NAME} . \
+                                --set image.repository=${DOCKER_REGISTRY}/${SERVICE_NAME} \
+                                --set image.tag=${env.BUILD_NUMBER} \
+                                --namespace default
+                            """
+                        }
                     }
                 }
             }
@@ -64,11 +61,14 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 script {
-                    sh '''
-                        kubectl get pods -n default
-                        kubectl get services -n default
-                        kubectl rollout status deployment/${SERVICE_NAME} -n default
-                    '''
+                    withCredentials([file(credentialsId: 'k3s-kubeconfig', variable: 'KUBECONFIG')]) {
+                        sh """
+                            export KUBECONFIG=${KUBECONFIG}
+                            kubectl get pods -n default
+                            kubectl get services -n default
+                            kubectl rollout status deployment/${SERVICE_NAME} -n default
+                        """
+                    }
                 }
             }
         }
@@ -80,10 +80,6 @@ pipeline {
         }
         failure {
             echo 'Deployment failed! 🚨'
-        }
-        always {
-            // Clean up Docker images
-            sh 'docker system prune -f'
         }
     }
 }
