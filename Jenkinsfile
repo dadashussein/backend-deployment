@@ -1,60 +1,89 @@
 pipeline {
     agent any
-
+    
     environment {
-        KUBECONFIG = '/var/lib/jenkins/kubeconfig'
+        DOCKER_REGISTRY = 'registry.digitalocean.com/dadas'
+        SERVICE_NAME = 'email-service'
+        KUBECONFIG = credentials('k3s-kubeconfig')
     }
-
+    
     stages {
-        stage('Clone Repository') {
+        stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/dadashussein/backend-deployment.git'
+                git branch: 'main', 
+                    url: 'https://github.com/dadashussein/backend-deployment.git'
             }
         }
-
-        stage('Build') {
+        
+        stage('Navigate to Project Directory') {
             steps {
-                sh '''
-                echo "Building Docker image"
-                docker build -t registry.digitalocean.com/dadas/email-service:latest .
-                '''
+                dir('email-service-app') {
+                    sh 'pwd'
+                }
             }
         }
-
-        stage('Push Image') {
+        
+        stage('Build Docker Image') {
             steps {
-                sh '''
-                echo "Pushing Docker image to registry"
-                docker push registry.digitalocean.com/dadas/email-service:latest
-                '''
+                dir('email-service-app') {
+                    script {
+                        docker.build("${DOCKER_REGISTRY}/${SERVICE_NAME}:${env.BUILD_NUMBER}")
+                    }
+                }
             }
         }
-
-        stage('Deploy to k3s') {
+        
+        stage('Push to Registry') {
             steps {
-                sh '''
-                echo "Deploying to k3s using Helm"
-                helm upgrade --install email-app ./helm-chart --namespace default
-                '''
+                dir('email-service-app') {
+                    script {
+                        docker.withRegistry('https://registry.digitalocean.com', 'digitalocean-registry-credentials') {
+                            docker.image("${DOCKER_REGISTRY}/${SERVICE_NAME}:${env.BUILD_NUMBER}").push()
+                            docker.image("${DOCKER_REGISTRY}/${SERVICE_NAME}:${env.BUILD_NUMBER}").push('latest')
+                        }
+                    }
+                }
             }
         }
-
+        
+        stage('Deploy to K3s') {
+            steps {
+                dir('helm-chart') {
+                    script {
+                        sh """
+                            helm upgrade --install ${SERVICE_NAME} . \
+                            --set image.repository=${DOCKER_REGISTRY}/${SERVICE_NAME} \
+                            --set image.tag=${env.BUILD_NUMBER} \
+                            --namespace default
+                        """
+                    }
+                }
+            }
+        }
+        
         stage('Verify Deployment') {
             steps {
-                sh '''
-                kubectl get pods --namespace default
-                kubectl get svc --namespace default
-                '''
+                script {
+                    sh '''
+                        kubectl get pods -n default
+                        kubectl get services -n default
+                        kubectl rollout status deployment/${SERVICE_NAME} -n default
+                    '''
+                }
             }
         }
     }
-
+    
     post {
         success {
-            echo 'Deployment successful!'
+            echo 'Deployment successful! 🚀'
         }
         failure {
-            echo 'Deployment failed!'
+            echo 'Deployment failed! 🚨'
+        }
+        always {
+            // Clean up Docker images
+            sh 'docker system prune -f'
         }
     }
 }
