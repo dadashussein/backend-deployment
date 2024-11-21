@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+data:
+  app-config.yaml: |
+    DB_HOST: {{ .Values.app.env.DB_HOST }}
+    EMAIL_HOST: {{ .Values.app.env.EMAIL_HOST }}

@@ -1,0 +1,50 @@
+app:
+  image:
+    repository: register
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  env:
+    DB_HOST: mysql
+    DB_PORT: 3306
+    DB_USERNAME: revan
+    DB_PASSWORD: 2343
+    DB_DATABASE_NAME: maildb
+    EMAIL_HOST: smtp.gmail.com
+    EMAIL_PORT: port
+    EMAIL_USERNAME: "username"
+    EMAIL_PASSWORD: "password"
+    EMAIL_FROM: # email from which email will be sent
+    EMAIL_TLS: "true"
+    PORT: 3000
+  service:
+    type: NodePort
+    name: email-service
+    port: 3000
+
+mysql:
+  image:
+    repository: mysql
+    tag: "8.0"
+    pullPolicy: IfNotPresent
+  rootPassword: 2343
+  database: maildb
+  user: revan
+  password: 2343
+  service:
+    name: mysql
+    port: 3306
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 1Gi
+
+ingress:
+  enabled: false
+  annotations: {}
+  hosts:
+    - host: nestjs.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
